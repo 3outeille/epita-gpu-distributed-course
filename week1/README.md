@@ -3,7 +3,7 @@
     ```
     uv venv dummy_env --python 3.12
     source dummy_env/bin/activate
-    uv pip install torch numpy datasets transformers lovely_tensors wandb debugpy-run
+    uv pip install torch numpy datasets transformers lovely_tensors wandb debugpy-run rich
     ```
 - Setup [debugger in Vscode](https://www.youtube.com/watch?v=_8xlRgFY_-g)
 
