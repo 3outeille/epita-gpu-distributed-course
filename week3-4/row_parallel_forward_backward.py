@@ -30,7 +30,7 @@ def row_parallel_linear_backward(Y_grad, X_row, W_row, use_all_gather=True):
     # 1. Compute dL/dX_row = dL/dY @ dY/dX = dL/dY @ W_row
     X_local_grad = Y_grad @ W_row
     if use_all_gather:
-        X_grad = torch.zeros_like(X_local_grad)
+        X_grad = [torch.zeros_like(X_local_grad) for _ in range(dist.get_world_size())]
         dist.all_gather(X_grad, X_local_grad)
         X_grad = torch.cat(X_grad, dim=1)
     else:
