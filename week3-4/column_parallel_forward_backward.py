@@ -15,9 +15,8 @@ def column_parallel_linear_forward(X, W_col):
     Y_col = X @ W_col.t()
     return Y_col
 
-def column_parallel_linear_backward(Y_col_grad, X, W_col):
+def column_parallel_linear_backward(Y_local_grad, X, W_col):
     """
-
     #Given: Y = X @ W
     # We get the derivatives: 
     dY/dX = W
@@ -29,14 +28,14 @@ def column_parallel_linear_backward(Y_col_grad, X, W_col):
     """
     # 1. Compute dL/dX = dL/dY_col @ W_col
     #    Each rank computes partial gradient, then all_reduce to sum contributions
-    X_grad = Y_col_grad @ W_col
+    X_grad = Y_local_grad @ W_col
     dist.all_reduce(X_grad, op=dist.ReduceOp.SUM)
     
     # 2. Compute dL/dW_col = dL/dY_col @ X
      #    Each rank computes gradient for its column slice
-    W_col_grad = Y_col_grad.t() @ X
+    W_local_grad = Y_local_grad.t() @ X
     
-    return X_grad, W_col_grad
+    return X_grad, W_local_grad
 
 if __name__ == "__main__":
     dist.init_process_group(backend="gloo")
@@ -63,9 +62,9 @@ if __name__ == "__main__":
 
     Y_local_grad = torch.ones_like(Y_local)
     
-    X_grad, W_grad = column_parallel_linear_backward(Y_local_grad, X, split_tensor(W, dim=0))
+    X_grad, W_local_grad = column_parallel_linear_backward(Y_local_grad, X, split_tensor(W, dim=0))
 
     torch.testing.assert_close(X_grad, X_ref.grad, rtol=1e-5, atol=1e-5)
-    torch.testing.assert_close(W_grad, split_tensor(W_ref.grad, dim=0), rtol=1e-5, atol=1e-5)
+    torch.testing.assert_close(W_local_grad, split_tensor(W_ref.grad, dim=0), rtol=1e-5, atol=1e-5)
     
     print("Both backward pass are matching ✅")
