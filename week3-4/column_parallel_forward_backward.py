@@ -12,32 +12,29 @@ def split_tensor(tensor, dim):
     return torch.chunk(tensor, world_size, dim)[local_rank].contiguous()
 
 def column_parallel_linear_forward(X, W_col):
-    Y_col = X @ W_col
+    Y_col = X @ W_col.t()
     return Y_col
 
 def column_parallel_linear_backward(Y_col_grad, X, W_col):
     """
-    Y = X @ W
-    # Applying chain rule:
-    dL/dX = dL/dY @ dY/dX
-    dL/dW = dL/dY @ dY/dW
 
+    #Given: Y = X @ W
+    # We get the derivatives: 
     dY/dX = W
     dY/dW = X
 
-    dL/dX = dL/dY @ W
-    dL/dW = dL/dY @ X
+    # Applying chain rule:
+    dL/dX = dL/dY @ dY/dX = dL/dY @ W
+    dL/dW = dL/dY @ dY/dW = dL/dY @ X
     """
-
-
-    # 1. Compute dL/dX = dL/dY_col @ W_col.T
+    # 1. Compute dL/dX = dL/dY_col @ W_col
     #    Each rank computes partial gradient, then all_reduce to sum contributions
-    X_grad = Y_col_grad @ W_col.T
+    X_grad = Y_col_grad @ W_col
     dist.all_reduce(X_grad, op=dist.ReduceOp.SUM)
     
-    # 2. Compute dL/dW_col = X.T @ dL/dY_col
-    #    Each rank computes gradient for its column slice
-    W_col_grad = X.T @ Y_col_grad
+    # 2. Compute dL/dW_col = dL/dY_col @ X
+     #    Each rank computes gradient for its column slice
+    W_col_grad = Y_col_grad.t() @ X
     
     return X_grad, W_col_grad
 
@@ -45,40 +42,30 @@ if __name__ == "__main__":
     dist.init_process_group(backend="gloo")
     device = torch.device("cpu")
 
-    local_rank = dist.get_rank()
-    world_size = dist.get_world_size()
-
     # Baseline
-    X_ref = torch.arange(start=0, end=8, step=1, device=device, requires_grad=True, dtype=torch.float32).reshape(4, 2)
+    X_ref = torch.arange(4 * 2, device=device, dtype=torch.float32, requires_grad=True).reshape(4, 2)
+    W_ref = torch.arange(1, 5, device=device, dtype=torch.float32, requires_grad=True).reshape(2, 2) * 10
     X_ref.retain_grad()
-    W_ref = torch.arange(start=10, end=50, step=10, device=device, requires_grad=True, dtype=torch.float32).reshape(2, 2).transpose(0, 1)
-    W_ref.retain_grad()
-    Y_ref = X_ref @ W_ref
-    Y_ref.retain_grad()
-
+    W_ref.retain_grad()    
+    Y_ref = X_ref @ W_ref.t()
     L_ref = Y_ref.sum()
-    L_ref.retain_grad()
     L_ref.backward()
-    
-    # In column parallel, X is replicated (not split), W is split along columns
+
+    # Column parallel
     X = X_ref.clone()
-    X.retain_grad()
     W = W_ref.clone()
-    W.retain_grad()
-
-    # Column parallel forward
-    W_col = split_tensor(W, dim=1)
-    Y_col = column_parallel_linear_forward(X, W_col)
-
-    assert torch.equal(Y_col, split_tensor(Y_ref, dim=1)), "Matrix multiplication result is incorrect"
+    
+    # We will transpose for matrix multiplication. As a result, we need to split row-wise
+    Y_local = column_parallel_linear_forward(X, split_tensor(W, dim=0))
+    
+    torch.testing.assert_close(Y_local, split_tensor(Y_ref, dim=1), rtol=1e-5, atol=1e-5)
     print("Both forward pass are matching ✅")
 
-    # Column parallel backward
-    Y_col_grad = torch.ones_like(Y_col)  # dL/dY_col (gradient from loss)
-    X_grad, W_col_grad = column_parallel_linear_backward(Y_col_grad, X, W_col)
+    Y_local_grad = torch.ones_like(Y_local)
+    
+    X_grad, W_grad = column_parallel_linear_backward(Y_local_grad, X, split_tensor(W, dim=0))
 
-    W_ref_col_grad = split_tensor(W_ref.grad, dim=1)
-
-    assert torch.equal(X_grad, X_ref.grad), "X.grad is incorrect"
-    assert torch.equal(W_col_grad, W_ref_col_grad), "W.grad is incorrect"
+    torch.testing.assert_close(X_grad, X_ref.grad, rtol=1e-5, atol=1e-5)
+    torch.testing.assert_close(W_grad, split_tensor(W_ref.grad, dim=0), rtol=1e-5, atol=1e-5)
+    
     print("Both backward pass are matching ✅")
