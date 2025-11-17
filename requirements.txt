@@ -1,0 +1,4 @@
+torch
+debugpy-run
+lovely_tensors
+rich

@@ -2,10 +2,11 @@
     - Explain column parallel (1 linear)
     - Explain row parallel (1 linear)
     - Make tiny example forward (1 linear)
-    - Make tiny example backward (1 linear)
-    - Combine 2 linears sequentially following each other
+    - Make tiny example backward (1 linear) [TODO (ensemble)]
+    - Combine 2 linears sequentially following each other [TODO (video tensor parallel pictoron 1->11:40min)]
         - What is the best combination/ordering ?
-            - talk about gelu() => can only start Column first
+            - talk about gelu() => can only start Column first [TODO]
             - Col + Row saves up one Comm
     - Apply to transformer modeling in picotron
     - Optional: talk about vocab paralell (can check my video)
+
