@@ -16,7 +16,7 @@ def row_parallel_linear_forward(X_row, W_row):
     dist.all_reduce(Y, op=dist.ReduceOp.SUM)
     return Y
 
-def row_parallel_linear_backward(Y_grad, X_row, W_row):
+def row_parallel_linear_backward(Y_grad, X_row, W_row, use_all_gather=True):
     """
     #Given: Y = X @ W
     # We get the derivatives: 
@@ -29,9 +29,12 @@ def row_parallel_linear_backward(Y_grad, X_row, W_row):
     """
     # 1. Compute dL/dX_row = dL/dY @ dY/dX = dL/dY @ W_row
     X_local_grad = Y_grad @ W_row
-    X_grad = [torch.zeros_like(X_local_grad) for _ in range(dist.get_world_size())]
-    dist.all_gather(X_grad, X_local_grad)
-    X_grad = torch.cat(X_grad, dim=1)
+    if use_all_gather:
+        X_grad = torch.zeros_like(X_local_grad)
+        dist.all_gather(X_grad, X_local_grad)
+        X_grad = torch.cat(X_grad, dim=1)
+    else:
+        X_grad = X_local_grad
 
     # 2. Compute dL/dW_row = dL/dY @ dY/dW = dL/dY @ X_row
     W_grad = Y_grad.t() @ X_row
